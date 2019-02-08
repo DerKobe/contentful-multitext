@@ -7,13 +7,16 @@ export default class App extends React.Component {
   constructor(props) {
     super(props);
 
-    const existingValue = props.extension.field.getValue();
+    const existingValues = props.extension.field.getValue();
 
     this.state = {
-      values: existingValue ? existingValue.map((value) => ({ id: uuidv1(), value })) : [],
+      values: existingValues ? existingValues.map((value) => ({ id: uuidv1(), value })) : [],
       focus: false,
       dragging: false,
     };
+
+    this.blockExternalChanges = false;
+    this.timeoutHandler = null;
   }
 
   componentDidMount() {
@@ -21,12 +24,8 @@ export default class App extends React.Component {
 
     extension.window.startAutoResizer();
 
-    this.detachValueChangeHandler = extension.field.onValueChanged((newValue) => {
-      this.setState({
-        values: newValue ? newValue.map((value) => ({ id: uuidv1(), value })) : [],
-        focus: false,
-        dragging: false,
-      });
+    this.detachValueChangeHandler = extension.field.onValueChanged((newValues) => {
+      this.updateState('external', { values: newValues ? newValues.map((value) => ({ id: uuidv1(), value })) : [] });
     });
   }
 
@@ -39,7 +38,7 @@ export default class App extends React.Component {
     const { values, focus, dragging } = this.state;
 
     return (
-      <React.Fragment>
+      <>
         <SortableList
           items={values}
           onChange={this.handleChange}
@@ -58,84 +57,93 @@ export default class App extends React.Component {
           onClick={this.handleAddItemClick}
           children="Eintrag hinzufügen"
         />
-      </React.Fragment>
+      </>
     );
   }
 
-  handleAddItemClick = () => {
-    this.setState(({ values: prevValues }) => {
-      return {
-        values: [...prevValues, { id: uuidv1(), value: '' }],
-        focus: true,
-      };
-    }, () => {
-      this.reportValues();
+  updateState = (source, newState) => {
+    if (source === 'external' && this.blockExternalChanges) return;
 
+    if (source === 'internal') {
+      this.blockExternalChanges = true;
+      clearTimeout(this.timeoutHandler);
+      this.timeoutHandler = setTimeout(() => {this.blockExternalChanges = false}, 1000);
+    }
+
+    this.setState(newState, source === 'internal' ? this.reportValues : undefined);
+  };
+
+  handleAddItemClick = () => {
+    const prevValues = this.state.values;
+
+    this.updateState('internal', {
+      values: [...prevValues, { id: uuidv1(), value: '' }],
+      focus: true,
     });
   };
 
   handleDeleteItemClick = (event) => {
     const li = event.currentTarget.closest('li');
-    this.setState(({ values: prevValues }) => {
-      const index = prevValues.findIndex(({ id }) => id === li.dataset.id);
-      if (index === -1) {
-        console.error("Didn't find value in state", event, prevValues);
-        return;
-      }
-      return {
-        values: [
-          ...prevValues.slice(0, index),
-          ...prevValues.slice(index + 1),
-        ],
-        focus: false,
-      };
-    }, this.reportValues);
+    const prevValues = this.state.values;
+
+    const index = prevValues.findIndex(({ id }) => id === li.dataset.id);
+    if (index === -1) {
+      console.error("Didn't find value in state", event, prevValues);
+      return;
+    }
+
+    this.updateState('internal', {
+      values: [
+        ...prevValues.slice(0, index),
+        ...prevValues.slice(index + 1),
+      ],
+      focus: false,
+    });
   };
 
   handleChange = (event) => {
     const input = event.currentTarget;
-    this.setState(({ values: prevValues }) => {
-      const index = prevValues.findIndex(({ id }) => id === input.closest('li').dataset.id);
-      if (index === -1) {
-        console.error("Didn't find value in state", event, prevValues);
-        return;
-      }
-      const id = prevValues[index].id;
-      return {
-        values: [
-          ...prevValues.slice(0, index),
-          { id: id, value: input.value },
-          ...prevValues.slice(index + 1),
-        ],
-        focus: false,
-      };
-    }, this.reportValues);
+    const prevValues = this.state.values;
+
+    const index = prevValues.findIndex(({ id }) => id === input.closest('li').dataset.id);
+    if (index === -1) {
+      console.error("Didn't find value in state", event, prevValues);
+      return;
+    }
+    const id = prevValues[index].id;
+
+    this.updateState('internal', {
+      values: [
+        ...prevValues.slice(0, index),
+        { id: id, value: input.value },
+        ...prevValues.slice(index + 1),
+      ],
+      focus: false,
+    });
   };
 
   handleSortStart = () => {
-    this.setState({
+    this.updateState('internal', {
       dragging: true,
       focus: false,
     });
   };
 
   handleSortEnd = ({ oldIndex, newIndex }) => {
-    this.setState(({ values: prevValues }) => ({
+    const prevValues = this.state.values;
+
+    this.updateState('internal', {
       values: arrayMove(prevValues, oldIndex, newIndex),
       dragging: false,
       focus: false,
-    }), this.reportValues);
+    });
   };
 
-  async reportValues() {
-    const {
-      extension,
-    } = this.props;
-    const {
-      values,
-    } = this.state;
+  reportValues() {
+    const { extension } = this.props;
+    const { values } = this.state;
 
-    return await extension.field.setValue(values.map(({ value }) => value));
+    extension.field.setValue(values.map(({ value }) => value));
   }
 }
 
