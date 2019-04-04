@@ -67,7 +67,9 @@ export default class App extends React.Component {
     if (source === 'internal') {
       this.blockExternalChanges = true;
       clearTimeout(this.timeoutHandler);
-      this.timeoutHandler = setTimeout(() => {this.blockExternalChanges = false}, 1000);
+      this.timeoutHandler = setTimeout(() => {
+        this.blockExternalChanges = false;
+      }, 1000);
     }
 
     this.setState(newState, source === 'internal' ? this.reportValues : undefined);
